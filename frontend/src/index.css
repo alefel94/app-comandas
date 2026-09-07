@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Karla", system-ui, sans-serif;
+  --font-display: "Fraunces", "Karla", system-ui, sans-serif;
+
+  --color-cream: #fdf6ee;
+  --color-surface: #ffffff;
+
+  --color-masa-50: #fdf6ee;
+  --color-masa-100: #f8e9d6;
+  --color-masa-200: #f0d3ab;
+
+  --color-chile-50: #fef2ee;
+  --color-chile-100: #fde1d6;
+  --color-chile-400: #e8602e;
+  --color-chile-500: #d6431a;
+  --color-chile-600: #b83417;
+  --color-chile-700: #942813;
+
+  --color-tomatillo-50: #f2f8ee;
+  --color-tomatillo-100: #dfeed3;
+  --color-tomatillo-500: #4c9a4a;
+  --color-tomatillo-600: #3c7d3b;
+  --color-tomatillo-700: #2f632e;
+
+  --color-cilantro-500: #2f9e6b;
+  --color-cilantro-600: #238055;
+
+  --color-oro-400: #e0a930;
+  --color-oro-500: #c88f1f;
+  --color-oro-600: #a3730f;
+
+  --color-azul-50: #eaf2fc;
+  --color-azul-500: #2f7fd6;
+  --color-azul-600: #2566ad;
+  --color-azul-700: #1d5089;
+
+  --color-carbon-400: #a89685;
+  --color-carbon-500: #7c6a5b;
+  --color-carbon-600: #5c4d41;
+  --color-carbon-700: #453a31;
+  --color-carbon-800: #332a24;
+  --color-carbon-900: #241d19;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  -webkit-tap-highlight-color: transparent;
+  background: var(--color-cream);
+  color: var(--color-carbon-800);
+  font-family: var(--font-sans);
+}
+
+button {
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
