@@ -56,9 +56,12 @@ class Pedido(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     mesa_id = Column(Integer, ForeignKey("mesas.id"), nullable=True)
+    cliente = Column(String, nullable=True)
     estado = Column(SAEnum(EstadoPedido), nullable=False, default=EstadoPedido.abierto)
     fecha_apertura = Column(DateTime, nullable=False, default=datetime.now)
     fecha_cierre = Column(DateTime, nullable=True)
+    reloj_desde = Column(DateTime, nullable=False, default=datetime.now)
+    ultimo_servido_en = Column(DateTime, nullable=True)
 
     mesa = relationship("Mesa", back_populates="pedidos")
     items = relationship(
@@ -76,6 +79,7 @@ class ItemPedido(Base):
     pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False)
     producto_id = Column(Integer, ForeignKey("productos.id"), nullable=False)
     cantidad = Column(Integer, nullable=False, default=1)
+    cantidad_servida = Column(Integer, nullable=False, default=0)
     precio_unitario = Column(Float, nullable=False)
     notas = Column(String, nullable=True)
 
@@ -90,6 +94,7 @@ class Pago(Base):
     pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False, unique=True)
     metodo = Column(SAEnum(MetodoPago), nullable=False)
     monto_total = Column(Float, nullable=False)
+    propina = Column(Float, nullable=False, default=0.0)
     fecha = Column(DateTime, nullable=False, default=datetime.now)
 
     pedido = relationship("Pedido", back_populates="pago")

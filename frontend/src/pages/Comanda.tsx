@@ -1,10 +1,35 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Minus, Plus, Receipt, ShoppingBag, Trash2, UtensilsCrossed, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Minus,
+  Plus,
+  Receipt,
+  ShoppingBag,
+  Trash2,
+  UtensilsCrossed,
+  Send,
+  X,
+} from 'lucide-react'
 import { useProductos } from '../hooks/useProductos'
-import { useActualizarItem, useAgregarItem, useCancelarPedido, useEliminarItem, usePedido } from '../hooks/usePedidos'
+import {
+  useActualizarItem,
+  useAgregarItemsLote,
+  useCancelarPedido,
+  useEliminarItem,
+  usePedido,
+} from '../hooks/usePedidos'
 import { useMesas } from '../hooks/useMesas'
 import { formatoMoneda } from '../utils/format'
+import type { ItemPedidoInput } from '../api/types'
+
+interface LineaNueva {
+  productoId: number
+  nombre: string
+  precio: number
+  cantidad: number
+}
 
 export default function Comanda() {
   const { pedidoId } = useParams()
@@ -14,7 +39,7 @@ export default function Comanda() {
   const { data: pedido, isLoading, isError } = usePedido(id)
   const { data: productos } = useProductos()
   const { data: mesas } = useMesas()
-  const agregarItem = useAgregarItem(id)
+  const agregarItemsLote = useAgregarItemsLote(id)
   const actualizarItem = useActualizarItem(id)
   const eliminarItem = useEliminarItem(id)
   const cancelarPedido = useCancelarPedido(id)
@@ -22,6 +47,8 @@ export default function Comanda() {
   const [categoria, setCategoria] = useState<string | null>(null)
   const [ticketAbierto, setTicketAbierto] = useState(false)
   const [confirmarCancelar, setConfirmarCancelar] = useState(false)
+  const [nuevos, setNuevos] = useState<Map<number, LineaNueva>>(new Map())
+  const [error, setError] = useState<string | null>(null)
 
   const categorias = useMemo(() => {
     const set = new Set(productos?.map((p) => p.categoria) ?? [])
@@ -33,7 +60,21 @@ export default function Comanda() {
     return productos.filter((p) => p.disponible && (!categoria || p.categoria === categoria))
   }, [productos, categoria])
 
+  const gruposProductos = useMemo(() => {
+    const map = new Map<string, typeof productosFiltrados>()
+    for (const p of productosFiltrados) {
+      const lista = map.get(p.categoria) ?? []
+      lista.push(p)
+      map.set(p.categoria, lista)
+    }
+    return Array.from(map.entries())
+  }, [productosFiltrados])
+
   const mesa = mesas?.find((m) => m.id === pedido?.mesa_id)
+
+  const lineasNuevas = Array.from(nuevos.values())
+  const cantidadNuevos = lineasNuevas.reduce((acc, l) => acc + l.cantidad, 0)
+  const subtotalNuevos = lineasNuevas.reduce((acc, l) => acc + l.cantidad * l.precio, 0)
 
   if (isError) {
     return (
@@ -70,6 +111,62 @@ export default function Comanda() {
 
   const cantidadItems = pedido.items.reduce((acc, item) => acc + item.cantidad, 0)
 
+  function agregarAlCarrito(producto: { id: number; nombre: string; precio: number }) {
+    setNuevos((prev) => {
+      const nuevo = new Map(prev)
+      const existente = nuevo.get(producto.id)
+      if (existente) {
+        nuevo.set(producto.id, { ...existente, cantidad: existente.cantidad + 1 })
+      } else {
+        nuevo.set(producto.id, {
+          productoId: producto.id,
+          nombre: producto.nombre,
+          precio: producto.precio,
+          cantidad: 1,
+        })
+      }
+      return nuevo
+    })
+  }
+
+  function cambiarCantidadNueva(productoId: number, delta: number) {
+    setNuevos((prev) => {
+      const nuevo = new Map(prev)
+      const linea = nuevo.get(productoId)
+      if (!linea) return prev
+      const cantidad = linea.cantidad + delta
+      if (cantidad <= 0) {
+        nuevo.delete(productoId)
+      } else {
+        nuevo.set(productoId, { ...linea, cantidad })
+      }
+      return nuevo
+    })
+  }
+
+  function quitarLineaNueva(productoId: number) {
+    setNuevos((prev) => {
+      const nuevo = new Map(prev)
+      nuevo.delete(productoId)
+      return nuevo
+    })
+  }
+
+  async function enviarACocina() {
+    if (lineasNuevas.length === 0 || agregarItemsLote.isPending) return
+    setError(null)
+    const items: ItemPedidoInput[] = lineasNuevas.map((l) => ({
+      producto_id: l.productoId,
+      cantidad: l.cantidad,
+    }))
+    try {
+      await agregarItemsLote.mutateAsync(items)
+      setNuevos(new Map())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enviar a cocina. Intenta de nuevo.')
+    }
+  }
+
   async function cancelar() {
     await cancelarPedido.mutateAsync()
     navigate('/')
@@ -90,7 +187,7 @@ export default function Comanda() {
             <div className="flex items-center gap-1.5 text-carbon-700 font-medium">
               {mesa ? <UtensilsCrossed size={16} /> : <ShoppingBag size={16} />}
               <span className="font-display text-lg font-semibold">
-                {mesa ? mesa.nombre : 'Para llevar'}
+                {mesa ? mesa.nombre : pedido.cliente || 'Para llevar'}
               </span>
             </div>
             <button
@@ -118,21 +215,30 @@ export default function Comanda() {
         {productosFiltrados.length === 0 && (
           <p className="text-carbon-400 text-sm py-8 text-center">No hay productos en esta categoría.</p>
         )}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {productosFiltrados.map((producto) => (
-            <button
-              key={producto.id}
-              onClick={() => agregarItem.mutate({ productoId: producto.id, cantidad: 1 })}
-              className="bg-surface border border-carbon-400/15 rounded-2xl p-3.5 text-left shadow-sm active:scale-95 transition cursor-pointer flex flex-col justify-between min-h-[84px]"
-            >
-              <p className="font-medium text-carbon-800 leading-snug">{producto.nombre}</p>
-              <div className="flex items-center justify-between mt-2">
-                <span className="text-chile-600 font-semibold">{formatoMoneda(producto.precio)}</span>
-                <span className="flex items-center justify-center h-7 w-7 rounded-full bg-chile-50 text-chile-600">
-                  <Plus size={16} strokeWidth={2.5} />
-                </span>
+        <div className="space-y-6">
+          {gruposProductos.map(([cat, items]) => (
+            <section key={cat}>
+              <h2 className="text-xs font-bold uppercase tracking-wide text-carbon-400 mb-2.5 px-1">
+                {cat}
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {items.map((producto) => (
+                  <button
+                    key={producto.id}
+                    onClick={() => agregarAlCarrito(producto)}
+                    className="bg-surface border border-carbon-400/15 rounded-2xl p-3.5 text-left shadow-sm active:scale-95 transition cursor-pointer flex flex-col justify-between min-h-[84px]"
+                  >
+                    <p className="font-medium text-carbon-800 leading-snug">{producto.nombre}</p>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-chile-600 font-semibold">{formatoMoneda(producto.precio)}</span>
+                      <span className="flex items-center justify-center h-7 w-7 rounded-full bg-chile-50 text-chile-600">
+                        <Plus size={16} strokeWidth={2.5} />
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
-            </button>
+            </section>
           ))}
         </div>
       </div>
@@ -157,6 +263,11 @@ export default function Comanda() {
                   {cantidadItems}
                 </span>
               )}
+              {cantidadNuevos > 0 && (
+                <span className="bg-oro-400/20 text-oro-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                  +{cantidadNuevos} sin enviar
+                </span>
+              )}
             </span>
             <span className="font-display text-xl font-semibold text-carbon-800">
               {formatoMoneda(pedido.total)}
@@ -164,58 +275,84 @@ export default function Comanda() {
           </button>
 
           <div className="max-h-[45vh] overflow-y-auto px-5">
-            {pedido.items.length === 0 && (
+            {pedido.items.length === 0 && lineasNuevas.length === 0 && (
               <p className="text-carbon-400 text-sm pb-4">Toca un producto del menú para agregarlo.</p>
             )}
-            <ul className="divide-y divide-carbon-400/10">
-              {pedido.items.map((item) => (
-                <li key={item.id} className="py-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-carbon-800 font-medium truncate">{item.producto.nombre}</p>
-                    <p className="text-carbon-500 text-sm">{formatoMoneda(item.precio_unitario)} c/u</p>
-                  </div>
 
-                  <div className="flex items-center gap-1 bg-carbon-400/10 rounded-full p-1">
-                    <button
-                      onClick={() =>
+            {pedido.items.length > 0 && (
+              <>
+                <p className="text-xs font-bold uppercase tracking-wide text-carbon-400 pt-1 pb-1.5">
+                  Ya en cocina
+                </p>
+                <ul className="space-y-1.5">
+                  {pedido.items.map((item) => (
+                    <LineaTicket
+                      key={item.id}
+                      nombre={item.producto.nombre}
+                      precio={item.precio_unitario}
+                      cantidad={item.cantidad}
+                      subtotal={item.cantidad * item.precio_unitario}
+                      onDecrementar={() =>
                         item.cantidad > 1
                           ? actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 })
                           : eliminarItem.mutate(item.id)
                       }
-                      aria-label="Quitar uno"
-                      className="h-8 w-8 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
-                    >
-                      <Minus size={14} strokeWidth={2.5} />
-                    </button>
-                    <span className="w-6 text-center font-semibold text-carbon-800 tabular-nums">
-                      {item.cantidad}
-                    </span>
-                    <button
-                      onClick={() => actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 })}
-                      aria-label="Agregar uno"
-                      className="h-8 w-8 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
-                    >
-                      <Plus size={14} strokeWidth={2.5} />
-                    </button>
-                  </div>
+                      onIncrementar={() =>
+                        actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 })
+                      }
+                      onQuitar={() => eliminarItem.mutate(item.id)}
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
 
-                  <span className="w-16 text-right font-semibold text-carbon-800 tabular-nums">
-                    {formatoMoneda(item.cantidad * item.precio_unitario)}
-                  </span>
-
-                  <button
-                    onClick={() => eliminarItem.mutate(item.id)}
-                    aria-label="Eliminar producto"
-                    className="h-8 w-8 flex items-center justify-center text-carbon-400 hover:text-chile-600 cursor-pointer"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {lineasNuevas.length > 0 && (
+              <>
+                <p className="text-xs font-bold uppercase tracking-wide text-oro-600 pt-3 pb-1.5">
+                  Por enviar a cocina
+                </p>
+                <ul className="space-y-1.5">
+                  {lineasNuevas.map((linea) => (
+                    <LineaTicket
+                      key={linea.productoId}
+                      nombre={linea.nombre}
+                      precio={linea.precio}
+                      cantidad={linea.cantidad}
+                      subtotal={linea.cantidad * linea.precio}
+                      acento="oro"
+                      onDecrementar={() => cambiarCantidadNueva(linea.productoId, -1)}
+                      onIncrementar={() => cambiarCantidadNueva(linea.productoId, 1)}
+                      onQuitar={() => quitarLineaNueva(linea.productoId)}
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
 
-          <div className="p-4 pt-3">
+          <div className="p-4 pt-3 space-y-2">
+            {error && (
+              <p className="text-chile-700 bg-chile-50 border border-chile-100 rounded-xl px-3 py-2 text-sm">
+                {error}
+              </p>
+            )}
+
+            {lineasNuevas.length > 0 && (
+              <button
+                onClick={enviarACocina}
+                disabled={agregarItemsLote.isPending}
+                className="w-full flex items-center justify-center gap-2 bg-oro-500 hover:bg-oro-600 disabled:opacity-60 text-white font-semibold py-4 rounded-2xl active:scale-95 transition cursor-pointer disabled:cursor-not-allowed"
+              >
+                {agregarItemsLote.isPending ? (
+                  <span className="h-5 w-5 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                ) : (
+                  <Send size={18} strokeWidth={2.2} />
+                )}
+                Agregar a pedido ({cantidadNuevos}) · {formatoMoneda(subtotalNuevos)}
+              </button>
+            )}
+
             <button
               onClick={() => navigate(`/cobro/${pedido.id}`)}
               disabled={pedido.items.length === 0}
@@ -276,6 +413,71 @@ export default function Comanda() {
         </div>
       )}
     </div>
+  )
+}
+
+function LineaTicket({
+  nombre,
+  precio,
+  cantidad,
+  subtotal,
+  acento = 'neutral',
+  onDecrementar,
+  onIncrementar,
+  onQuitar,
+}: {
+  nombre: string
+  precio: number
+  cantidad: number
+  subtotal: number
+  acento?: 'neutral' | 'oro'
+  onDecrementar: () => void
+  onIncrementar: () => void
+  onQuitar: () => void
+}) {
+  return (
+    <li className="rounded-xl bg-carbon-400/5 pl-3 pr-2 py-2 flex items-center gap-2">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-carbon-800 truncate">{nombre}</p>
+        <p className="text-xs text-carbon-500 tabular-nums">{formatoMoneda(precio)} c/u</p>
+      </div>
+
+      <div
+        className={`flex items-center gap-0.5 rounded-full p-0.5 shrink-0 ${
+          acento === 'oro' ? 'bg-oro-400/20' : 'bg-carbon-400/10'
+        }`}
+      >
+        <button
+          onClick={onDecrementar}
+          aria-label="Quitar uno"
+          className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
+        >
+          <Minus size={12} strokeWidth={2.5} />
+        </button>
+        <span className="w-4 text-center text-sm font-semibold text-carbon-800 tabular-nums">
+          {cantidad}
+        </span>
+        <button
+          onClick={onIncrementar}
+          aria-label="Agregar uno"
+          className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
+        >
+          <Plus size={12} strokeWidth={2.5} />
+        </button>
+      </div>
+
+      <span className="w-14 text-right text-sm font-semibold text-carbon-800 tabular-nums shrink-0">
+        {formatoMoneda(subtotal)}
+      </span>
+
+      <button
+        onClick={onQuitar}
+        aria-label="Quitar producto"
+        className="h-7 w-7 flex items-center justify-center text-carbon-400 hover:text-chile-600 cursor-pointer shrink-0"
+      >
+        <Trash2 size={14} />
+      </button>
+    </li>
   )
 }
 

@@ -13,6 +13,14 @@ export function useCrearMesa() {
   })
 }
 
+export function useActualizarMesa() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, nombre }: { id: number; nombre: string }) => api.mesas.actualizar(id, nombre),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['mesas'] }),
+  })
+}
+
 export function useEliminarMesa() {
   const queryClient = useQueryClient()
   return useMutation({

@@ -1,6 +1,7 @@
 import type {
   EstadisticasMes,
   ItemPedido,
+  ItemPedidoInput,
   Mesa,
   Pedido,
   Producto,
@@ -38,6 +39,8 @@ export const api = {
     listar: () => request<Mesa[]>('/mesas'),
     crear: (nombre: string) =>
       request<Mesa>('/mesas', { method: 'POST', body: JSON.stringify({ nombre }) }),
+    actualizar: (id: number, nombre: string) =>
+      request<Mesa>(`/mesas/${id}`, { method: 'PUT', body: JSON.stringify({ nombre }) }),
     eliminar: (id: number) => request<void>(`/mesas/${id}`, { method: 'DELETE' }),
   },
   productos: {
@@ -52,12 +55,17 @@ export const api = {
     listar: (estado?: 'abierto' | 'pagado') =>
       request<Pedido[]>(`/pedidos${estado ? `?estado=${estado}` : ''}`),
     obtener: (id: number) => request<Pedido>(`/pedidos/${id}`),
-    crear: (mesa_id: number | null) =>
-      request<Pedido>('/pedidos', { method: 'POST', body: JSON.stringify({ mesa_id }) }),
+    crear: (mesa_id: number | null, items: ItemPedidoInput[] = [], cliente?: string) =>
+      request<Pedido>('/pedidos', { method: 'POST', body: JSON.stringify({ mesa_id, items, cliente }) }),
     agregarItem: (pedidoId: number, producto_id: number, cantidad: number, notas?: string) =>
       request<Pedido>(`/pedidos/${pedidoId}/items`, {
         method: 'POST',
         body: JSON.stringify({ producto_id, cantidad, notas }),
+      }),
+    agregarItemsLote: (pedidoId: number, items: ItemPedidoInput[]) =>
+      request<Pedido>(`/pedidos/${pedidoId}/items/lote`, {
+        method: 'POST',
+        body: JSON.stringify({ items }),
       }),
     actualizarItem: (pedidoId: number, itemId: number, data: Partial<Pick<ItemPedido, 'cantidad' | 'notas'>>) =>
       request<Pedido>(`/pedidos/${pedidoId}/items/${itemId}`, {
@@ -67,10 +75,12 @@ export const api = {
     eliminarItem: (pedidoId: number, itemId: number) =>
       request<Pedido>(`/pedidos/${pedidoId}/items/${itemId}`, { method: 'DELETE' }),
     cancelar: (pedidoId: number) => request<void>(`/pedidos/${pedidoId}`, { method: 'DELETE' }),
-    pagar: (pedidoId: number, metodo: 'efectivo' | 'tarjeta') =>
+    marcarServido: (pedidoId: number) =>
+      request<Pedido>(`/pedidos/${pedidoId}/servir`, { method: 'POST' }),
+    pagar: (pedidoId: number, metodo: 'efectivo' | 'tarjeta', propina: number = 0) =>
       request<Pedido>(`/pedidos/${pedidoId}/pagar`, {
         method: 'POST',
-        body: JSON.stringify({ metodo }),
+        body: JSON.stringify({ metodo, propina }),
       }),
   },
   estadisticas: {

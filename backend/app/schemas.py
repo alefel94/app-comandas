@@ -15,6 +15,10 @@ class MesaCreate(MesaBase):
     pass
 
 
+class MesaUpdate(BaseModel):
+    nombre: str
+
+
 class Mesa(MesaBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -59,6 +63,10 @@ class ItemPedidoUpdate(BaseModel):
     notas: Optional[str] = None
 
 
+class ItemsPedidoLote(BaseModel):
+    items: list[ItemPedidoCreate]
+
+
 class ItemPedido(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,6 +74,7 @@ class ItemPedido(BaseModel):
     producto_id: int
     producto: Producto
     cantidad: int
+    cantidad_servida: int
     precio_unitario: float
     notas: Optional[str] = None
 
@@ -73,6 +82,7 @@ class ItemPedido(BaseModel):
 # ---------- Pago ----------
 class PagoCreate(BaseModel):
     metodo: MetodoPago
+    propina: float = 0.0
 
 
 class Pago(BaseModel):
@@ -81,12 +91,15 @@ class Pago(BaseModel):
     id: int
     metodo: MetodoPago
     monto_total: float
+    propina: float
     fecha: datetime
 
 
 # ---------- Pedido ----------
 class PedidoCreate(BaseModel):
     mesa_id: Optional[int] = None
+    cliente: Optional[str] = None
+    items: list[ItemPedidoCreate] = []
 
 
 class Pedido(BaseModel):
@@ -94,9 +107,12 @@ class Pedido(BaseModel):
 
     id: int
     mesa_id: Optional[int] = None
+    cliente: Optional[str] = None
     estado: EstadoPedido
     fecha_apertura: datetime
     fecha_cierre: Optional[datetime] = None
+    reloj_desde: datetime
+    ultimo_servido_en: Optional[datetime] = None
     items: list[ItemPedido] = []
     pago: Optional[Pago] = None
 
@@ -110,6 +126,7 @@ class ResumenVentas(BaseModel):
     total: float
     efectivo: float
     tarjeta: float
+    propinas: float
     numero_cuentas: int
 
 

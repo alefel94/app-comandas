@@ -19,8 +19,9 @@ def _resumen(db: Session, desde: datetime, hasta: datetime) -> schemas.ResumenVe
     total = sum(p.monto_total for p in pagos)
     efectivo = sum(p.monto_total for p in pagos if p.metodo == models.MetodoPago.efectivo)
     tarjeta = sum(p.monto_total for p in pagos if p.metodo == models.MetodoPago.tarjeta)
+    propinas = sum(p.propina for p in pagos)
     return schemas.ResumenVentas(
-        total=total, efectivo=efectivo, tarjeta=tarjeta, numero_cuentas=len(pagos)
+        total=total, efectivo=efectivo, tarjeta=tarjeta, propinas=propinas, numero_cuentas=len(pagos)
     )
 
 

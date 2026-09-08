@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -40,13 +42,38 @@ async def crear_pedido(datos: schemas.PedidoCreate, db: Session = Depends(get_db
         if mesa.estado == models.EstadoMesa.ocupada:
             raise HTTPException(status_code=400, detail="La mesa ya está ocupada")
 
-    pedido = models.Pedido(mesa_id=datos.mesa_id, estado=models.EstadoPedido.abierto)
+    for item in datos.items:
+        producto = db.query(models.Producto).filter(models.Producto.id == item.producto_id).first()
+        if not producto:
+            raise HTTPException(status_code=404, detail=f"Producto {item.producto_id} no encontrado")
+
+    pedido = models.Pedido(
+        mesa_id=datos.mesa_id,
+        cliente=datos.cliente.strip() if datos.cliente and datos.cliente.strip() else None,
+        estado=models.EstadoPedido.abierto,
+    )
     db.add(pedido)
     if mesa:
         mesa.estado = models.EstadoMesa.ocupada
+    db.flush()
+
+    for item in datos.items:
+        producto = db.query(models.Producto).filter(models.Producto.id == item.producto_id).first()
+        db.add(
+            models.ItemPedido(
+                pedido_id=pedido.id,
+                producto_id=producto.id,
+                cantidad=item.cantidad,
+                precio_unitario=producto.precio,
+                notas=item.notas,
+            )
+        )
+
     db.commit()
     db.refresh(pedido)
     await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})
+    if mesa:
+        await manager.broadcast({"tipo": "mesas_actualizadas"})
     return _con_total(pedido)
 
 
@@ -60,6 +87,7 @@ async def cancelar_pedido(pedido_id: int, db: Session = Depends(get_db)):
 
     if pedido.mesa:
         pedido.mesa.estado = models.EstadoMesa.libre
+        pedido.mesa.nombre = f"Mesa {pedido.mesa.id}"
     db.delete(pedido)
     db.commit()
     await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido_id})
@@ -67,17 +95,29 @@ async def cancelar_pedido(pedido_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@router.post("/{pedido_id}/items", response_model=schemas.PedidoConTotal)
-async def agregar_item(pedido_id: int, item: schemas.ItemPedidoCreate, db: Session = Depends(get_db)):
+@router.post("/{pedido_id}/servir", response_model=schemas.PedidoConTotal)
+async def marcar_servido(pedido_id: int, db: Session = Depends(get_db)):
     pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
     if not pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
-    if pedido.estado != models.EstadoPedido.abierto:
-        raise HTTPException(status_code=400, detail="El pedido ya está cerrado")
 
+    for item in pedido.items:
+        item.cantidad_servida = item.cantidad
+    pedido.ultimo_servido_en = datetime.now()
+    db.commit()
+    db.refresh(pedido)
+    await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})
+    return _con_total(pedido)
+
+
+def _pedido_totalmente_servido(pedido: models.Pedido) -> bool:
+    return all(item.cantidad_servida >= item.cantidad for item in pedido.items)
+
+
+def _agregar_o_sumar_item(db: Session, pedido: models.Pedido, item: schemas.ItemPedidoCreate) -> models.Producto:
     producto = db.query(models.Producto).filter(models.Producto.id == item.producto_id).first()
     if not producto:
-        raise HTTPException(status_code=404, detail="Producto no encontrado")
+        raise HTTPException(status_code=404, detail=f"Producto {item.producto_id} no encontrado")
 
     # Si el mismo producto (sin notas especiales) ya está en el ticket, se suma
     # la cantidad en vez de crear una línea duplicada.
@@ -96,14 +136,52 @@ async def agregar_item(pedido_id: int, item: schemas.ItemPedidoCreate, db: Sessi
     if item_existente:
         item_existente.cantidad += item.cantidad
     else:
-        nuevo_item = models.ItemPedido(
-            pedido_id=pedido.id,
-            producto_id=producto.id,
-            cantidad=item.cantidad,
-            precio_unitario=producto.precio,
-            notas=item.notas,
+        db.add(
+            models.ItemPedido(
+                pedido_id=pedido.id,
+                producto_id=producto.id,
+                cantidad=item.cantidad,
+                precio_unitario=producto.precio,
+                notas=item.notas,
+            )
         )
-        db.add(nuevo_item)
+    return producto
+
+
+@router.post("/{pedido_id}/items", response_model=schemas.PedidoConTotal)
+async def agregar_item(pedido_id: int, item: schemas.ItemPedidoCreate, db: Session = Depends(get_db)):
+    pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if pedido.estado != models.EstadoPedido.abierto:
+        raise HTTPException(status_code=400, detail="El pedido ya está cerrado")
+
+    ya_servido = _pedido_totalmente_servido(pedido)
+    _agregar_o_sumar_item(db, pedido, item)
+    if ya_servido:
+        pedido.reloj_desde = datetime.now()
+    db.commit()
+    db.refresh(pedido)
+    await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})
+    return _con_total(pedido)
+
+
+@router.post("/{pedido_id}/items/lote", response_model=schemas.PedidoConTotal)
+async def agregar_items_lote(pedido_id: int, datos: schemas.ItemsPedidoLote, db: Session = Depends(get_db)):
+    pedido = db.query(models.Pedido).filter(models.Pedido.id == pedido_id).first()
+    if not pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if pedido.estado != models.EstadoPedido.abierto:
+        raise HTTPException(status_code=400, detail="El pedido ya está cerrado")
+    if not datos.items:
+        raise HTTPException(status_code=400, detail="No se enviaron productos")
+
+    ya_servido = _pedido_totalmente_servido(pedido)
+    for item in datos.items:
+        _agregar_o_sumar_item(db, pedido, item)
+    if ya_servido:
+        pedido.reloj_desde = datetime.now()
+
     db.commit()
     db.refresh(pedido)
     await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})

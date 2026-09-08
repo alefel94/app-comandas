@@ -1,4 +1,4 @@
-import { Banknote, CreditCard, Receipt, TrendingUp } from 'lucide-react'
+import { Banknote, CreditCard, HandCoins, Receipt, TrendingUp } from 'lucide-react'
 import { useEstadisticasDia, useEstadisticasMes } from '../hooks/useEstadisticas'
 import { formatoMoneda } from '../utils/format'
 import type { VentaPorDia } from '../api/types'
@@ -21,10 +21,11 @@ export default function Estadisticas() {
         {cargandoDia || !dia ? (
           <TarjetasSkeleton />
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <Tarjeta etiqueta="Total del día" valor={formatoMoneda(dia.total)} icon={TrendingUp} destacado />
             <Tarjeta etiqueta="Efectivo" valor={formatoMoneda(dia.efectivo)} icon={Banknote} color="tomatillo" />
             <Tarjeta etiqueta="Tarjeta" valor={formatoMoneda(dia.tarjeta)} icon={CreditCard} color="azul" />
+            <Tarjeta etiqueta="Propinas" valor={formatoMoneda(dia.propinas)} icon={HandCoins} color="oro" />
             <Tarjeta etiqueta="Cuentas cobradas" valor={String(dia.numero_cuentas)} icon={Receipt} />
           </div>
         )}
@@ -36,10 +37,11 @@ export default function Estadisticas() {
           <TarjetasSkeleton />
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
               <Tarjeta etiqueta="Total del mes" valor={formatoMoneda(mes.resumen.total)} icon={TrendingUp} destacado />
               <Tarjeta etiqueta="Efectivo" valor={formatoMoneda(mes.resumen.efectivo)} icon={Banknote} color="tomatillo" />
               <Tarjeta etiqueta="Tarjeta" valor={formatoMoneda(mes.resumen.tarjeta)} icon={CreditCard} color="azul" />
+              <Tarjeta etiqueta="Propinas" valor={formatoMoneda(mes.resumen.propinas)} icon={HandCoins} color="oro" />
               <Tarjeta etiqueta="Cuentas cobradas" valor={String(mes.resumen.numero_cuentas)} icon={Receipt} />
             </div>
 
@@ -150,11 +152,17 @@ function Tarjeta({
   etiqueta: string
   valor: string
   icon: typeof TrendingUp
-  color?: 'tomatillo' | 'azul'
+  color?: 'tomatillo' | 'azul' | 'oro'
   destacado?: boolean
 }) {
   const colorClases =
-    color === 'tomatillo' ? 'text-tomatillo-600 bg-tomatillo-50' : color === 'azul' ? 'text-azul-600 bg-azul-50' : 'text-chile-600 bg-chile-50'
+    color === 'tomatillo'
+      ? 'text-tomatillo-600 bg-tomatillo-50'
+      : color === 'azul'
+        ? 'text-azul-600 bg-azul-50'
+        : color === 'oro'
+          ? 'text-oro-600 bg-oro-400/15'
+          : 'text-chile-600 bg-chile-50'
 
   return (
     <div className="bg-surface border border-carbon-400/15 rounded-2xl p-3.5 shadow-sm">

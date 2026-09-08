@@ -1,26 +1,34 @@
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
-import { ClipboardList, LayoutGrid, LineChart } from 'lucide-react'
+import { BookOpen, ChefHat, LayoutGrid, LineChart } from 'lucide-react'
 import Mesas from './pages/Mesas'
+import NuevaComanda from './pages/NuevaComanda'
 import Comanda from './pages/Comanda'
 import Cobro from './pages/Cobro'
 import Estadisticas from './pages/Estadisticas'
-import AdminMenu from './pages/AdminMenu'
+import Catalogo from './pages/Catalogo'
+import Cocina from './pages/Cocina'
 import { useWebSocket } from './hooks/useWebSocket'
 
 function App() {
   useWebSocket()
   const location = useLocation()
-  const ocultarNav = location.pathname.startsWith('/comanda') || location.pathname.startsWith('/cobro')
+  const ocultarNav =
+    location.pathname.startsWith('/comanda') ||
+    location.pathname.startsWith('/cobro') ||
+    location.pathname.startsWith('/nueva-comanda')
 
   return (
     <div className="min-h-dvh bg-cream flex flex-col">
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<Mesas />} />
+          <Route path="/nueva-comanda/mesa/:mesaId" element={<NuevaComanda />} />
+          <Route path="/nueva-comanda/llevar" element={<NuevaComanda />} />
           <Route path="/comanda/:pedidoId" element={<Comanda />} />
           <Route path="/cobro/:pedidoId" element={<Cobro />} />
           <Route path="/estadisticas" element={<Estadisticas />} />
-          <Route path="/menu" element={<AdminMenu />} />
+          <Route path="/catalogo" element={<Catalogo />} />
+          <Route path="/cocina" element={<Cocina />} />
         </Routes>
       </main>
 
@@ -30,7 +38,8 @@ function App() {
           style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
         >
           <NavTab to="/" label="Mesas" icon={LayoutGrid} />
-          <NavTab to="/menu" label="Menú" icon={ClipboardList} />
+          <NavTab to="/cocina" label="Cocina" icon={ChefHat} />
+          <NavTab to="/catalogo" label="Catálogo" icon={BookOpen} />
           <NavTab to="/estadisticas" label="Ventas" icon={LineChart} />
         </nav>
       )}

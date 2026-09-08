@@ -26,6 +26,25 @@ async def crear_mesa(mesa: schemas.MesaCreate, db: Session = Depends(get_db)):
     return nueva_mesa
 
 
+@router.put("/{mesa_id}", response_model=schemas.Mesa)
+async def actualizar_mesa(mesa_id: int, datos: schemas.MesaUpdate, db: Session = Depends(get_db)):
+    mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()
+    if not mesa:
+        raise HTTPException(status_code=404, detail="Mesa no encontrada")
+    existente = (
+        db.query(models.Mesa)
+        .filter(models.Mesa.nombre == datos.nombre, models.Mesa.id != mesa_id)
+        .first()
+    )
+    if existente:
+        raise HTTPException(status_code=400, detail="Ya existe una mesa con ese nombre")
+    mesa.nombre = datos.nombre
+    db.commit()
+    db.refresh(mesa)
+    await manager.broadcast({"tipo": "mesas_actualizadas"})
+    return mesa
+
+
 @router.delete("/{mesa_id}")
 async def eliminar_mesa(mesa_id: int, db: Session = Depends(get_db)):
     mesa = db.query(models.Mesa).filter(models.Mesa.id == mesa_id).first()

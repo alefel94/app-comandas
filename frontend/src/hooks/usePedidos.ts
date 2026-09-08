@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
+import type { ItemPedidoInput } from '../api/types'
 
 export function usePedidosAbiertos() {
   return useQuery({ queryKey: ['pedidos', 'abierto'], queryFn: () => api.pedidos.listar('abierto') })
@@ -17,7 +18,15 @@ export function usePedido(id: number | null) {
 export function useCrearPedido() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (mesaId: number | null) => api.pedidos.crear(mesaId),
+    mutationFn: ({
+      mesaId,
+      items,
+      cliente,
+    }: {
+      mesaId: number | null
+      items?: ItemPedidoInput[]
+      cliente?: string
+    }) => api.pedidos.crear(mesaId, items, cliente),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mesas'] })
       queryClient.invalidateQueries({ queryKey: ['pedidos'] })
@@ -30,6 +39,17 @@ export function useAgregarItem(pedidoId: number) {
   return useMutation({
     mutationFn: ({ productoId, cantidad, notas }: { productoId: number; cantidad: number; notas?: string }) =>
       api.pedidos.agregarItem(pedidoId, productoId, cantidad, notas),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] })
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] })
+    },
+  })
+}
+
+export function useAgregarItemsLote(pedidoId: number) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (items: ItemPedidoInput[]) => api.pedidos.agregarItemsLote(pedidoId, items),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] })
       queryClient.invalidateQueries({ queryKey: ['pedidos'] })
@@ -71,10 +91,22 @@ export function useCancelarPedido(pedidoId: number) {
   })
 }
 
+export function useMarcarServido() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (pedidoId: number) => api.pedidos.marcarServido(pedidoId),
+    onSuccess: (_data, pedidoId) => {
+      queryClient.invalidateQueries({ queryKey: ['pedido', pedidoId] })
+      queryClient.invalidateQueries({ queryKey: ['pedidos'] })
+    },
+  })
+}
+
 export function usePagarPedido(pedidoId: number) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (metodo: 'efectivo' | 'tarjeta') => api.pedidos.pagar(pedidoId, metodo),
+    mutationFn: ({ metodo, propina }: { metodo: 'efectivo' | 'tarjeta'; propina?: number }) =>
+      api.pedidos.pagar(pedidoId, metodo, propina),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['mesas'] })
       queryClient.invalidateQueries({ queryKey: ['pedidos'] })
