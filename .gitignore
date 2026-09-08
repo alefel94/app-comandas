@@ -14,3 +14,4 @@ frontend/dist/
 # editors / OS
 .DS_Store
 .vscode/
+.claude/

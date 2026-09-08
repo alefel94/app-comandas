@@ -187,13 +187,15 @@ export default function Mesas() {
           )
         })}
 
-        <button
-          onClick={() => setMostrarForm(true)}
-          className="aspect-square rounded-3xl border-2 border-dashed border-carbon-400/40 text-carbon-400 hover:text-chile-600 hover:border-chile-400 flex flex-col items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
-        >
-          <Plus size={26} strokeWidth={2} />
-          <span className="text-xs font-medium">Nueva mesa</span>
-        </button>
+        {mesas && mesas.length > 0 && (
+          <button
+            onClick={() => setMostrarForm(true)}
+            className="aspect-square rounded-3xl border-2 border-dashed border-carbon-400/40 text-carbon-400 hover:text-chile-600 hover:border-chile-400 flex flex-col items-center justify-center gap-1.5 transition active:scale-95 cursor-pointer"
+          >
+            <Plus size={26} strokeWidth={2} />
+            <span className="text-xs font-medium">Nueva mesa</span>
+          </button>
+        )}
       </div>
 
       {pedidosLlevar.length > 0 && (
