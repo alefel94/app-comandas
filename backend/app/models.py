@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import (
     Column,
@@ -14,6 +14,14 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .database import Base
+
+
+def utc_now() -> datetime:
+    # El servidor puede estar en cualquier zona horaria (este corre en
+    # Europe/Berlin, los negocios que lo usan no) — todo se guarda en UTC,
+    # sin tzinfo (SQLite no lo conserva bien), y el frontend le agrega el
+    # sufijo "Z" al leerlo para interpretarlo como instante absoluto.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class EstadoMesa(str, enum.Enum):
@@ -35,10 +43,20 @@ class Mesa(Base):
     __tablename__ = "mesas"
 
     id = Column(Integer, primary_key=True, index=True)
-    nombre = Column(String, nullable=False, unique=True)
+    # Sin unique=True a nivel de columna: el nombre solo debe ser único entre
+    # mesas ocupadas (se valida en el router), una mesa libre es desechable y
+    # su nombre se puede reutilizar sin problema.
+    nombre = Column(String, nullable=False)
     estado = Column(SAEnum(EstadoMesa), nullable=False, default=EstadoMesa.libre)
 
     pedidos = relationship("Pedido", back_populates="mesa")
+
+
+class Categoria(Base):
+    __tablename__ = "categorias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    nombre = Column(String, nullable=False, unique=True)
 
 
 class Producto(Base):
@@ -58,9 +76,9 @@ class Pedido(Base):
     mesa_id = Column(Integer, ForeignKey("mesas.id"), nullable=True)
     cliente = Column(String, nullable=True)
     estado = Column(SAEnum(EstadoPedido), nullable=False, default=EstadoPedido.abierto)
-    fecha_apertura = Column(DateTime, nullable=False, default=datetime.now)
+    fecha_apertura = Column(DateTime, nullable=False, default=utc_now)
     fecha_cierre = Column(DateTime, nullable=True)
-    reloj_desde = Column(DateTime, nullable=False, default=datetime.now)
+    reloj_desde = Column(DateTime, nullable=False, default=utc_now)
     ultimo_servido_en = Column(DateTime, nullable=True)
 
     mesa = relationship("Mesa", back_populates="pedidos")
@@ -82,6 +100,7 @@ class ItemPedido(Base):
     cantidad_servida = Column(Integer, nullable=False, default=0)
     precio_unitario = Column(Float, nullable=False)
     notas = Column(String, nullable=True)
+    plato = Column(Integer, nullable=True)
 
     pedido = relationship("Pedido", back_populates="items")
     producto = relationship("Producto")
@@ -95,6 +114,6 @@ class Pago(Base):
     metodo = Column(SAEnum(MetodoPago), nullable=False)
     monto_total = Column(Float, nullable=False)
     propina = Column(Float, nullable=False, default=0.0)
-    fecha = Column(DateTime, nullable=False, default=datetime.now)
+    fecha = Column(DateTime, nullable=False, default=utc_now)
 
     pedido = relationship("Pedido", back_populates="pago")

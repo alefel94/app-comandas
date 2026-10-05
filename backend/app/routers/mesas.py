@@ -15,9 +15,16 @@ def listar_mesas(db: Session = Depends(get_db)):
 
 @router.post("", response_model=schemas.Mesa)
 async def crear_mesa(mesa: schemas.MesaCreate, db: Session = Depends(get_db)):
-    existente = db.query(models.Mesa).filter(models.Mesa.nombre == mesa.nombre).first()
+    # Solo importa el nombre mientras la mesa está en uso — una mesa libre es
+    # desechable (se crea de nuevo con el nombre del siguiente cliente) y no
+    # debe bloquear ese nombre para siempre solo porque quedó huérfana.
+    existente = (
+        db.query(models.Mesa)
+        .filter(models.Mesa.nombre == mesa.nombre, models.Mesa.estado == models.EstadoMesa.ocupada)
+        .first()
+    )
     if existente:
-        raise HTTPException(status_code=400, detail="Ya existe una mesa con ese nombre")
+        raise HTTPException(status_code=400, detail="Ya existe una mesa ocupada con ese nombre")
     nueva_mesa = models.Mesa(nombre=mesa.nombre, estado=models.EstadoMesa.libre)
     db.add(nueva_mesa)
     db.commit()
@@ -33,11 +40,15 @@ async def actualizar_mesa(mesa_id: int, datos: schemas.MesaUpdate, db: Session =
         raise HTTPException(status_code=404, detail="Mesa no encontrada")
     existente = (
         db.query(models.Mesa)
-        .filter(models.Mesa.nombre == datos.nombre, models.Mesa.id != mesa_id)
+        .filter(
+            models.Mesa.nombre == datos.nombre,
+            models.Mesa.id != mesa_id,
+            models.Mesa.estado == models.EstadoMesa.ocupada,
+        )
         .first()
     )
     if existente:
-        raise HTTPException(status_code=400, detail="Ya existe una mesa con ese nombre")
+        raise HTTPException(status_code=400, detail="Ya existe una mesa ocupada con ese nombre")
     mesa.nombre = datos.nombre
     db.commit()
     db.refresh(mesa)

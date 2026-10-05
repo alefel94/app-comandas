@@ -22,6 +22,11 @@ interface LineaCarrito {
   nombre: string
   precio: number
   cantidad: number
+  plato: number
+}
+
+function claveLinea(productoId: number, plato: number) {
+  return `${productoId}-${plato}`
 }
 
 export default function NuevaComanda() {
@@ -36,7 +41,8 @@ export default function NuevaComanda() {
 
   const [categoria, setCategoria] = useState<string | null>(null)
   const [cliente] = useState(() => (location.state as { cliente?: string } | null)?.cliente ?? '')
-  const [carrito, setCarrito] = useState<Map<number, LineaCarrito>>(new Map())
+  const [carrito, setCarrito] = useState<Map<string, LineaCarrito>>(new Map())
+  const [platoActivo, setPlatoActivo] = useState(1)
   const [ticketAbierto, setTicketAbierto] = useState(false)
   const [confirmarDescartar, setConfirmarDescartar] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -67,45 +73,69 @@ export default function NuevaComanda() {
   const cantidadItems = lineas.reduce((acc, l) => acc + l.cantidad, 0)
   const total = lineas.reduce((acc, l) => acc + l.cantidad * l.precio, 0)
 
+  const platos = useMemo(() => {
+    const set = new Set(lineas.map((l) => l.plato))
+    set.add(platoActivo)
+    return Array.from(set).sort((a, b) => a - b)
+  }, [lineas, platoActivo])
+
+  const lineasPorPlato = useMemo(() => {
+    const map = new Map<number, LineaCarrito[]>()
+    for (const l of lineas) {
+      const lista = map.get(l.plato) ?? []
+      lista.push(l)
+      map.set(l.plato, lista)
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0])
+  }, [lineas])
+
   function agregarAlCarrito(producto: { id: number; nombre: string; precio: number }) {
     setCarrito((prev) => {
       const nuevo = new Map(prev)
-      const existente = nuevo.get(producto.id)
+      const clave = claveLinea(producto.id, platoActivo)
+      const existente = nuevo.get(clave)
       if (existente) {
-        nuevo.set(producto.id, { ...existente, cantidad: existente.cantidad + 1 })
+        nuevo.set(clave, { ...existente, cantidad: existente.cantidad + 1 })
       } else {
-        nuevo.set(producto.id, {
+        nuevo.set(clave, {
           productoId: producto.id,
           nombre: producto.nombre,
           precio: producto.precio,
           cantidad: 1,
+          plato: platoActivo,
         })
       }
       return nuevo
     })
   }
 
-  function cambiarCantidad(productoId: number, delta: number) {
+  function cambiarCantidad(productoId: number, plato: number, delta: number) {
     setCarrito((prev) => {
       const nuevo = new Map(prev)
-      const linea = nuevo.get(productoId)
+      const clave = claveLinea(productoId, plato)
+      const linea = nuevo.get(clave)
       if (!linea) return prev
       const cantidad = linea.cantidad + delta
       if (cantidad <= 0) {
-        nuevo.delete(productoId)
+        nuevo.delete(clave)
       } else {
-        nuevo.set(productoId, { ...linea, cantidad })
+        nuevo.set(clave, { ...linea, cantidad })
       }
       return nuevo
     })
   }
 
-  function quitarLinea(productoId: number) {
+  function quitarLinea(productoId: number, plato: number) {
     setCarrito((prev) => {
       const nuevo = new Map(prev)
-      nuevo.delete(productoId)
+      nuevo.delete(claveLinea(productoId, plato))
       return nuevo
     })
+  }
+
+  function agregarPlato() {
+    const siguiente = Math.max(0, ...platos) + 1
+    setPlatoActivo(siguiente)
   }
 
   function salir() {
@@ -122,7 +152,7 @@ export default function NuevaComanda() {
     try {
       const pedido = await crearPedido.mutateAsync({
         mesaId: idMesa,
-        items: lineas.map((l) => ({ producto_id: l.productoId, cantidad: l.cantidad })),
+        items: lineas.map((l) => ({ producto_id: l.productoId, cantidad: l.cantidad, plato: l.plato })),
         cliente: idMesa ? undefined : cliente.trim() || undefined,
       })
       navigate(idMesa ? '/' : `/comanda/${pedido.id}`)
@@ -185,7 +215,7 @@ export default function NuevaComanda() {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 mb-2">
           <ChipCategoria activo={categoria === null} onClick={() => setCategoria(null)}>
             Todos
           </ChipCategoria>
@@ -194,6 +224,25 @@ export default function NuevaComanda() {
               {cat}
             </ChipCategoria>
           ))}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+          <span className="text-xs font-semibold text-carbon-400 uppercase tracking-wide shrink-0">
+            Agregando a
+          </span>
+          {platos.map((n) => (
+            <ChipPlato key={n} activo={platoActivo === n} onClick={() => setPlatoActivo(n)}>
+              Plato {n}
+            </ChipPlato>
+          ))}
+          <button
+            type="button"
+            onClick={agregarPlato}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border border-dashed border-carbon-400/40 text-carbon-400 hover:text-chile-600 hover:border-chile-400 transition cursor-pointer shrink-0"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            Plato
+          </button>
         </div>
       </div>
 
@@ -259,48 +308,58 @@ export default function NuevaComanda() {
             {lineas.length === 0 && (
               <p className="text-carbon-400 text-sm pb-4">Toca un producto del menú para agregarlo.</p>
             )}
-            <ul className="space-y-1.5">
-              {lineas.map((linea) => (
-                <li key={linea.productoId} className="rounded-xl bg-carbon-400/5 pl-3 pr-2 py-2 flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-carbon-800 truncate">{linea.nombre}</p>
-                    <p className="text-xs text-carbon-500 tabular-nums">{formatoMoneda(linea.precio)} c/u</p>
-                  </div>
-
-                  <div className="flex items-center gap-0.5 bg-carbon-400/10 rounded-full p-0.5 shrink-0">
-                    <button
-                      onClick={() => cambiarCantidad(linea.productoId, -1)}
-                      aria-label="Quitar uno"
-                      className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
+            {lineasPorPlato.map(([plato, lineasDelPlato], i) => (
+              <div key={plato} className={i > 0 ? 'pt-3' : ''}>
+                <p className="text-xs font-bold uppercase tracking-wide text-carbon-400 pb-1.5">
+                  Plato {plato}
+                </p>
+                <ul className="space-y-1.5">
+                  {lineasDelPlato.map((linea) => (
+                    <li
+                      key={claveLinea(linea.productoId, linea.plato)}
+                      className="rounded-xl bg-carbon-400/5 pl-3 pr-2 py-2 flex items-center gap-2"
                     >
-                      <Minus size={12} strokeWidth={2.5} />
-                    </button>
-                    <span className="w-4 text-center text-sm font-semibold text-carbon-800 tabular-nums">
-                      {linea.cantidad}
-                    </span>
-                    <button
-                      onClick={() => cambiarCantidad(linea.productoId, 1)}
-                      aria-label="Agregar uno"
-                      className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
-                    >
-                      <Plus size={12} strokeWidth={2.5} />
-                    </button>
-                  </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-carbon-800 truncate">{linea.nombre}</p>
+                        <p className="text-xs text-carbon-500 tabular-nums">{formatoMoneda(linea.precio)} c/u</p>
+                      </div>
 
-                  <span className="w-14 text-right text-sm font-semibold text-carbon-800 tabular-nums shrink-0">
-                    {formatoMoneda(linea.cantidad * linea.precio)}
-                  </span>
+                      <div className="flex items-center gap-0.5 bg-carbon-400/10 rounded-full p-0.5 shrink-0">
+                        <button
+                          onClick={() => cambiarCantidad(linea.productoId, linea.plato, -1)}
+                          aria-label="Quitar uno"
+                          className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
+                        >
+                          <Minus size={12} strokeWidth={2.5} />
+                        </button>
+                        <span className="w-4 text-center text-sm font-semibold text-carbon-800 tabular-nums">
+                          {linea.cantidad}
+                        </span>
+                        <button
+                          onClick={() => cambiarCantidad(linea.productoId, linea.plato, 1)}
+                          aria-label="Agregar uno"
+                          className="h-6 w-6 flex items-center justify-center rounded-full bg-surface text-carbon-600 shadow-sm active:scale-90 transition cursor-pointer"
+                        >
+                          <Plus size={12} strokeWidth={2.5} />
+                        </button>
+                      </div>
 
-                  <button
-                    onClick={() => quitarLinea(linea.productoId)}
-                    aria-label="Eliminar producto"
-                    className="h-7 w-7 flex items-center justify-center text-carbon-400 hover:text-chile-600 cursor-pointer shrink-0"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </li>
-              ))}
-            </ul>
+                      <span className="w-14 text-right text-sm font-semibold text-carbon-800 tabular-nums shrink-0">
+                        {formatoMoneda(linea.cantidad * linea.precio)}
+                      </span>
+
+                      <button
+                        onClick={() => quitarLinea(linea.productoId, linea.plato)}
+                        aria-label="Eliminar producto"
+                        className="h-7 w-7 flex items-center justify-center text-carbon-400 hover:text-chile-600 cursor-pointer shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
 
           <div className="p-4 pt-3">
@@ -386,6 +445,28 @@ function ChipCategoria({
       onClick={onClick}
       className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition cursor-pointer min-h-[36px] ${
         activo ? 'bg-carbon-800 text-white' : 'bg-carbon-400/10 text-carbon-600 hover:bg-carbon-400/20'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ChipPlato({
+  activo,
+  onClick,
+  children,
+}: {
+  activo: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer shrink-0 ${
+        activo ? 'bg-oro-500 text-white' : 'bg-oro-400/10 text-oro-700 hover:bg-oro-400/20'
       }`}
     >
       {children}

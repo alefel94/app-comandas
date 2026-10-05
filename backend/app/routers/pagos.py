@@ -1,10 +1,9 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..models import utc_now
 from ..websocket import manager
 
 router = APIRouter(prefix="/pedidos", tags=["pagos"])
@@ -26,7 +25,7 @@ async def cobrar_pedido(pedido_id: int, datos: schemas.PagoCreate, db: Session =
     pago = models.Pago(pedido_id=pedido.id, metodo=datos.metodo, monto_total=total, propina=propina)
     db.add(pago)
     pedido.estado = models.EstadoPedido.pagado
-    pedido.fecha_cierre = datetime.now()
+    pedido.fecha_cierre = utc_now()
     if pedido.mesa:
         pedido.mesa.estado = models.EstadoMesa.libre
         pedido.mesa.nombre = f"Mesa {pedido.mesa.id}"

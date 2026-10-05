@@ -3,10 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { Bell, CheckCircle2, ChefHat, Clock, Receipt, ShoppingBag, UtensilsCrossed, Volume2 } from 'lucide-react'
 import { useMarcarServido, usePedidosAbiertos } from '../hooks/usePedidos'
 import { useMesas } from '../hooks/useMesas'
-import type { Pedido } from '../api/types'
+import type { ItemPedido, Pedido } from '../api/types'
 
 function cantidadTotal(pedido: Pedido) {
   return pedido.items.reduce((acc, item) => acc + item.cantidad, 0)
+}
+
+function agruparPorPlato(items: ItemPedido[]) {
+  const map = new Map<number, ItemPedido[]>()
+  for (const item of items) {
+    const plato = item.plato ?? 1
+    const lista = map.get(plato) ?? []
+    lista.push(item)
+    map.set(plato, lista)
+  }
+  return Array.from(map.entries()).sort((a, b) => a[0] - b[0])
 }
 
 function segundosDesde(fechaIso: string) {
@@ -22,10 +33,13 @@ function formatoTranscurrido(segundos: number) {
 }
 
 function estilosUrgencia(segundos: number) {
+  // Fondos sólidos (no tintes claros) porque la tarjeta de un pedido sin
+  // servir ya tiene un fondo rojizo claro — un badge con el mismo tono
+  // pastel se perdería encima.
   const minutos = segundos / 60
-  if (minutos >= 20) return 'bg-chile-50 text-chile-600'
-  if (minutos >= 10) return 'bg-oro-400/15 text-oro-700'
-  return 'bg-carbon-400/10 text-carbon-500'
+  if (minutos >= 20) return 'bg-chile-600 text-white'
+  if (minutos >= 10) return 'bg-oro-500 text-white'
+  return 'bg-carbon-800 text-white'
 }
 
 function pedidoPendiente(pedido: Pedido) {
@@ -184,10 +198,12 @@ export default function Cocina() {
         {pedidosOrdenados.map((pedido) => (
           <div
             key={pedido.id}
-            className={`bg-surface border rounded-2xl p-4 shadow-sm transition ${
+            className={`border rounded-2xl p-4 shadow-sm transition ${
               destacado === pedido.id
-                ? 'border-oro-500 ring-2 ring-oro-400/60'
-                : 'border-carbon-400/15'
+                ? 'bg-surface border-oro-500 ring-2 ring-oro-400/60'
+                : pedidoPendiente(pedido)
+                  ? 'bg-chile-50 border-chile-200'
+                  : 'bg-surface border-carbon-400/15'
             }`}
           >
             <div className="flex items-center justify-between mb-2.5">
@@ -201,11 +217,11 @@ export default function Cocina() {
               </span>
               {pedidoPendiente(pedido) ? (
                 <span
-                  className={`flex items-center gap-1 text-xs font-semibold tabular-nums px-2 py-1 rounded-full ${estilosUrgencia(
+                  className={`flex items-center gap-1.5 text-lg font-bold tabular-nums px-3 py-1.5 rounded-full ${estilosUrgencia(
                     segundosDesde(pedido.reloj_desde),
                   )}`}
                 >
-                  <Clock size={12} />
+                  <Clock size={18} strokeWidth={2.4} />
                   {formatoTranscurrido(segundosDesde(pedido.reloj_desde))}
                 </span>
               ) : (
@@ -220,63 +236,88 @@ export default function Cocina() {
               <p className="text-carbon-400 text-sm">Sin productos todavía.</p>
             ) : pedido.ultimo_servido_en === null ? (
               // Nunca se ha marcado como servido: todo el pedido es "nuevo", no hace
-              // falta separar nada todavía.
-              <ul className="space-y-1.5">
-                {pedido.items.map((item) => (
-                  <li key={item.id} className="flex items-baseline gap-2 text-sm">
-                    <span className="font-semibold text-chile-600 tabular-nums shrink-0">
-                      {item.cantidad}×
-                    </span>
-                    <span className="text-carbon-800">
-                      {item.producto.nombre}
-                      {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              // falta separar nada todavía — pero sí por plato, para que se sepa
+              // qué le toca a cada quien.
+              agruparPorPlato(pedido.items).map(([plato, items]) => (
+                <div key={plato} className="mb-1.5">
+                  {agruparPorPlato(pedido.items).length > 1 && (
+                    <p className="text-[11px] font-bold uppercase tracking-wide text-carbon-500/70 pb-1">
+                      Plato {plato}
+                    </p>
+                  )}
+                  <ul className="space-y-1.5">
+                    {items.map((item) => (
+                      <li key={item.id} className="flex items-baseline gap-2 text-sm">
+                        <span className="font-semibold text-chile-600 tabular-nums shrink-0">
+                          {item.cantidad}×
+                        </span>
+                        <span className="text-carbon-800">
+                          {item.producto.nombre}
+                          {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))
             ) : (
               <>
-                {pedido.items.some((item) => item.cantidad_servida > 0) && (
-                  <ul className="space-y-1.5">
-                    {pedido.items
-                      .filter((item) => item.cantidad_servida > 0)
-                      .map((item) => (
-                        <li key={item.id} className="flex items-baseline gap-2 text-sm">
-                          <span className="font-semibold text-chile-600 tabular-nums shrink-0">
-                            {item.cantidad_servida}×
-                          </span>
-                          <span className="text-carbon-800">
-                            {item.producto.nombre}
-                            {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
-                          </span>
-                        </li>
-                      ))}
-                  </ul>
-                )}
+                {pedido.items.some((item) => item.cantidad_servida > 0) &&
+                  agruparPorPlato(pedido.items.filter((item) => item.cantidad_servida > 0)).map(
+                    ([plato, items]) => (
+                      <div key={plato} className="mb-1.5">
+                        <ul className="space-y-1.5">
+                          {items.map((item) => (
+                            <li key={item.id} className="flex items-baseline gap-2 text-sm">
+                              <span className="font-semibold text-chile-600 tabular-nums shrink-0">
+                                {item.cantidad_servida}×
+                              </span>
+                              <span className="text-carbon-800">
+                                {item.producto.nombre}
+                                {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ),
+                  )}
 
                 {pedidoPendiente(pedido) && (
                   <>
                     <p className="text-xs font-bold uppercase tracking-wide text-oro-600 pt-3 pb-1.5">
                       Nuevo pedido
                     </p>
-                    <ul className="space-y-1.5">
-                      {pedido.items
-                        .filter((item) => item.cantidad > item.cantidad_servida)
-                        .map((item) => (
-                          <li
-                            key={item.id}
-                            className="flex items-baseline gap-2 text-sm bg-oro-400/10 rounded-lg px-2 py-1 -mx-2"
-                          >
-                            <span className="font-semibold text-oro-700 tabular-nums shrink-0">
-                              {item.cantidad - item.cantidad_servida}×
-                            </span>
-                            <span className="text-carbon-800">
-                              {item.producto.nombre}
-                              {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
-                            </span>
-                          </li>
-                        ))}
-                    </ul>
+                    {(() => {
+                      const grupos = agruparPorPlato(
+                        pedido.items.filter((item) => item.cantidad > item.cantidad_servida),
+                      )
+                      return grupos.map(([plato, items]) => (
+                        <div key={plato} className="mb-1.5">
+                          {grupos.length > 1 && (
+                            <p className="text-[11px] font-bold uppercase tracking-wide text-oro-600/70 pb-1">
+                              Plato {plato}
+                            </p>
+                          )}
+                          <ul className="space-y-1.5">
+                            {items.map((item) => (
+                              <li
+                                key={item.id}
+                                className="flex items-baseline gap-2 text-sm bg-oro-400/10 rounded-lg px-2 py-1 -mx-2"
+                              >
+                                <span className="font-semibold text-oro-700 tabular-nums shrink-0">
+                                  {item.cantidad - item.cantidad_servida}×
+                                </span>
+                                <span className="text-carbon-800">
+                                  {item.producto.nombre}
+                                  {item.notas && <span className="text-carbon-500 italic"> — {item.notas}</span>}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))
+                    })()}
                   </>
                 )}
               </>

@@ -1,9 +1,18 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Annotated, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, PlainSerializer
 
 from .models import EstadoMesa, EstadoPedido, MetodoPago
+
+# Los datetime se guardan en la base de datos como UTC sin tzinfo (ver
+# models.utc_now). Al serializarlos hay que marcarlos como UTC explícitamente
+# ("Z" al final) — si no, el frontend los interpreta como hora local del
+# navegador y el reloj de cocina queda descuadrado por varias horas.
+UTCDateTime = Annotated[
+    datetime,
+    PlainSerializer(lambda dt: dt.replace(tzinfo=timezone.utc).isoformat(), return_type=str),
+]
 
 
 # ---------- Mesa ----------
@@ -24,6 +33,17 @@ class Mesa(MesaBase):
 
     id: int
     estado: EstadoMesa
+
+
+# ---------- Categoria ----------
+class CategoriaCreate(BaseModel):
+    nombre: str
+
+
+class Categoria(CategoriaCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
 
 
 # ---------- Producto ----------
@@ -56,11 +76,13 @@ class ItemPedidoCreate(BaseModel):
     producto_id: int
     cantidad: int = 1
     notas: Optional[str] = None
+    plato: Optional[int] = None
 
 
 class ItemPedidoUpdate(BaseModel):
     cantidad: Optional[int] = None
     notas: Optional[str] = None
+    plato: Optional[int] = None
 
 
 class ItemsPedidoLote(BaseModel):
@@ -77,6 +99,7 @@ class ItemPedido(BaseModel):
     cantidad_servida: int
     precio_unitario: float
     notas: Optional[str] = None
+    plato: Optional[int] = None
 
 
 # ---------- Pago ----------
@@ -92,7 +115,7 @@ class Pago(BaseModel):
     metodo: MetodoPago
     monto_total: float
     propina: float
-    fecha: datetime
+    fecha: UTCDateTime
 
 
 # ---------- Pedido ----------
@@ -109,10 +132,10 @@ class Pedido(BaseModel):
     mesa_id: Optional[int] = None
     cliente: Optional[str] = None
     estado: EstadoPedido
-    fecha_apertura: datetime
-    fecha_cierre: Optional[datetime] = None
-    reloj_desde: datetime
-    ultimo_servido_en: Optional[datetime] = None
+    fecha_apertura: UTCDateTime
+    fecha_cierre: Optional[UTCDateTime] = None
+    reloj_desde: UTCDateTime
+    ultimo_servido_en: Optional[UTCDateTime] = None
     items: list[ItemPedido] = []
     pago: Optional[Pago] = None
 
@@ -128,6 +151,7 @@ class ResumenVentas(BaseModel):
     tarjeta: float
     propinas: float
     numero_cuentas: int
+    tacos_vendidos: int = 0
 
 
 class VentaPorDia(BaseModel):
@@ -135,6 +159,7 @@ class VentaPorDia(BaseModel):
     total: float
     efectivo: float
     tarjeta: float
+    tacos: int = 0
 
 
 class EstadisticasMes(BaseModel):

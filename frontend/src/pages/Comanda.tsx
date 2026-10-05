@@ -22,13 +22,18 @@ import {
 } from '../hooks/usePedidos'
 import { useMesas } from '../hooks/useMesas'
 import { formatoMoneda } from '../utils/format'
-import type { ItemPedidoInput } from '../api/types'
+import type { ItemPedido, ItemPedidoInput } from '../api/types'
 
 interface LineaNueva {
   productoId: number
   nombre: string
   precio: number
   cantidad: number
+  plato: number
+}
+
+function claveLinea(productoId: number, plato: number) {
+  return `${productoId}-${plato}`
 }
 
 export default function Comanda() {
@@ -47,7 +52,8 @@ export default function Comanda() {
   const [categoria, setCategoria] = useState<string | null>(null)
   const [ticketAbierto, setTicketAbierto] = useState(false)
   const [confirmarCancelar, setConfirmarCancelar] = useState(false)
-  const [nuevos, setNuevos] = useState<Map<number, LineaNueva>>(new Map())
+  const [nuevos, setNuevos] = useState<Map<string, LineaNueva>>(new Map())
+  const [platoActivo, setPlatoActivo] = useState(1)
   const [error, setError] = useState<string | null>(null)
 
   const categorias = useMemo(() => {
@@ -75,6 +81,35 @@ export default function Comanda() {
   const lineasNuevas = Array.from(nuevos.values())
   const cantidadNuevos = lineasNuevas.reduce((acc, l) => acc + l.cantidad, 0)
   const subtotalNuevos = lineasNuevas.reduce((acc, l) => acc + l.cantidad * l.precio, 0)
+
+  const platos = useMemo(() => {
+    const set = new Set<number>()
+    for (const item of pedido?.items ?? []) set.add(item.plato ?? 1)
+    for (const l of lineasNuevas) set.add(l.plato)
+    set.add(platoActivo)
+    return Array.from(set).sort((a, b) => a - b)
+  }, [pedido?.items, lineasNuevas, platoActivo])
+
+  const itemsExistentesPorPlato = useMemo(() => {
+    const map = new Map<number, ItemPedido[]>()
+    for (const item of pedido?.items ?? []) {
+      const plato = item.plato ?? 1
+      const lista = map.get(plato) ?? []
+      lista.push(item)
+      map.set(plato, lista)
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0])
+  }, [pedido?.items])
+
+  const lineasNuevasPorPlato = useMemo(() => {
+    const map = new Map<number, LineaNueva[]>()
+    for (const l of lineasNuevas) {
+      const lista = map.get(l.plato) ?? []
+      lista.push(l)
+      map.set(l.plato, lista)
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0])
+  }, [lineasNuevas])
 
   if (isError) {
     return (
@@ -114,42 +149,49 @@ export default function Comanda() {
   function agregarAlCarrito(producto: { id: number; nombre: string; precio: number }) {
     setNuevos((prev) => {
       const nuevo = new Map(prev)
-      const existente = nuevo.get(producto.id)
+      const clave = claveLinea(producto.id, platoActivo)
+      const existente = nuevo.get(clave)
       if (existente) {
-        nuevo.set(producto.id, { ...existente, cantidad: existente.cantidad + 1 })
+        nuevo.set(clave, { ...existente, cantidad: existente.cantidad + 1 })
       } else {
-        nuevo.set(producto.id, {
+        nuevo.set(clave, {
           productoId: producto.id,
           nombre: producto.nombre,
           precio: producto.precio,
           cantidad: 1,
+          plato: platoActivo,
         })
       }
       return nuevo
     })
   }
 
-  function cambiarCantidadNueva(productoId: number, delta: number) {
+  function cambiarCantidadNueva(productoId: number, plato: number, delta: number) {
     setNuevos((prev) => {
       const nuevo = new Map(prev)
-      const linea = nuevo.get(productoId)
+      const clave = claveLinea(productoId, plato)
+      const linea = nuevo.get(clave)
       if (!linea) return prev
       const cantidad = linea.cantidad + delta
       if (cantidad <= 0) {
-        nuevo.delete(productoId)
+        nuevo.delete(clave)
       } else {
-        nuevo.set(productoId, { ...linea, cantidad })
+        nuevo.set(clave, { ...linea, cantidad })
       }
       return nuevo
     })
   }
 
-  function quitarLineaNueva(productoId: number) {
+  function quitarLineaNueva(productoId: number, plato: number) {
     setNuevos((prev) => {
       const nuevo = new Map(prev)
-      nuevo.delete(productoId)
+      nuevo.delete(claveLinea(productoId, plato))
       return nuevo
     })
+  }
+
+  function agregarPlato() {
+    setPlatoActivo(Math.max(0, ...platos) + 1)
   }
 
   async function enviarACocina() {
@@ -158,6 +200,7 @@ export default function Comanda() {
     const items: ItemPedidoInput[] = lineasNuevas.map((l) => ({
       producto_id: l.productoId,
       cantidad: l.cantidad,
+      plato: l.plato,
     }))
     try {
       await agregarItemsLote.mutateAsync(items)
@@ -199,7 +242,7 @@ export default function Comanda() {
           </div>
         </div>
 
-        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 mb-2">
           <ChipCategoria activo={categoria === null} onClick={() => setCategoria(null)}>
             Todos
           </ChipCategoria>
@@ -208,6 +251,25 @@ export default function Comanda() {
               {cat}
             </ChipCategoria>
           ))}
+        </div>
+
+        <div className="flex items-center gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+          <span className="text-xs font-semibold text-carbon-400 uppercase tracking-wide shrink-0">
+            Agregando a
+          </span>
+          {platos.map((n) => (
+            <ChipPlato key={n} activo={platoActivo === n} onClick={() => setPlatoActivo(n)}>
+              Plato {n}
+            </ChipPlato>
+          ))}
+          <button
+            type="button"
+            onClick={agregarPlato}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border border-dashed border-carbon-400/40 text-carbon-400 hover:text-chile-600 hover:border-chile-400 transition cursor-pointer shrink-0"
+          >
+            <Plus size={12} strokeWidth={2.5} />
+            Plato
+          </button>
         </div>
       </div>
 
@@ -284,26 +346,35 @@ export default function Comanda() {
                 <p className="text-xs font-bold uppercase tracking-wide text-carbon-400 pt-1 pb-1.5">
                   Ya en cocina
                 </p>
-                <ul className="space-y-1.5">
-                  {pedido.items.map((item) => (
-                    <LineaTicket
-                      key={item.id}
-                      nombre={item.producto.nombre}
-                      precio={item.precio_unitario}
-                      cantidad={item.cantidad}
-                      subtotal={item.cantidad * item.precio_unitario}
-                      onDecrementar={() =>
-                        item.cantidad > 1
-                          ? actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 })
-                          : eliminarItem.mutate(item.id)
-                      }
-                      onIncrementar={() =>
-                        actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 })
-                      }
-                      onQuitar={() => eliminarItem.mutate(item.id)}
-                    />
-                  ))}
-                </ul>
+                {itemsExistentesPorPlato.map(([plato, items]) => (
+                  <div key={plato} className="mb-2">
+                    {itemsExistentesPorPlato.length > 1 && (
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-carbon-400/70 pb-1">
+                        Plato {plato}
+                      </p>
+                    )}
+                    <ul className="space-y-1.5">
+                      {items.map((item) => (
+                        <LineaTicket
+                          key={item.id}
+                          nombre={item.producto.nombre}
+                          precio={item.precio_unitario}
+                          cantidad={item.cantidad}
+                          subtotal={item.cantidad * item.precio_unitario}
+                          onDecrementar={() =>
+                            item.cantidad > 1
+                              ? actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad - 1 })
+                              : eliminarItem.mutate(item.id)
+                          }
+                          onIncrementar={() =>
+                            actualizarItem.mutate({ itemId: item.id, cantidad: item.cantidad + 1 })
+                          }
+                          onQuitar={() => eliminarItem.mutate(item.id)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </>
             )}
 
@@ -312,21 +383,30 @@ export default function Comanda() {
                 <p className="text-xs font-bold uppercase tracking-wide text-oro-600 pt-3 pb-1.5">
                   Por enviar a cocina
                 </p>
-                <ul className="space-y-1.5">
-                  {lineasNuevas.map((linea) => (
-                    <LineaTicket
-                      key={linea.productoId}
-                      nombre={linea.nombre}
-                      precio={linea.precio}
-                      cantidad={linea.cantidad}
-                      subtotal={linea.cantidad * linea.precio}
-                      acento="oro"
-                      onDecrementar={() => cambiarCantidadNueva(linea.productoId, -1)}
-                      onIncrementar={() => cambiarCantidadNueva(linea.productoId, 1)}
-                      onQuitar={() => quitarLineaNueva(linea.productoId)}
-                    />
-                  ))}
-                </ul>
+                {lineasNuevasPorPlato.map(([plato, lineasDelPlato]) => (
+                  <div key={plato} className="mb-2">
+                    {lineasNuevasPorPlato.length > 1 && (
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-oro-600/70 pb-1">
+                        Plato {plato}
+                      </p>
+                    )}
+                    <ul className="space-y-1.5">
+                      {lineasDelPlato.map((linea) => (
+                        <LineaTicket
+                          key={claveLinea(linea.productoId, linea.plato)}
+                          nombre={linea.nombre}
+                          precio={linea.precio}
+                          cantidad={linea.cantidad}
+                          subtotal={linea.cantidad * linea.precio}
+                          acento="oro"
+                          onDecrementar={() => cambiarCantidadNueva(linea.productoId, linea.plato, -1)}
+                          onIncrementar={() => cambiarCantidadNueva(linea.productoId, linea.plato, 1)}
+                          onQuitar={() => quitarLineaNueva(linea.productoId, linea.plato)}
+                        />
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </>
             )}
           </div>
@@ -495,6 +575,28 @@ function ChipCategoria({
       onClick={onClick}
       className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition cursor-pointer min-h-[36px] ${
         activo ? 'bg-carbon-800 text-white' : 'bg-carbon-400/10 text-carbon-600 hover:bg-carbon-400/20'
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+function ChipPlato({
+  activo,
+  onClick,
+  children,
+}: {
+  activo: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition cursor-pointer shrink-0 ${
+        activo ? 'bg-oro-500 text-white' : 'bg-oro-400/10 text-oro-700 hover:bg-oro-400/20'
       }`}
     >
       {children}

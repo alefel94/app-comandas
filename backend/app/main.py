@@ -1,12 +1,14 @@
+import logging
 import os
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from . import models
 from .database import engine
-from .routers import estadisticas, mesas, pagos, pedidos, productos
+from .routers import categorias, estadisticas, mesas, pagos, pedidos, productos
 from .websocket import manager
 
 models.Base.metadata.create_all(bind=engine)
@@ -15,6 +17,31 @@ models.Base.metadata.create_all(bind=engine)
 # create_all no altera tablas existentes, así que sin esto una base de
 # datos creada antes de este cambio se quedaría sin la columna.
 with engine.connect() as _conn:
+    # La tabla mesas se creó originalmente con UNIQUE(nombre) a nivel de
+    # columna, lo cual bloqueaba reutilizar el nombre de una mesa ya libre
+    # (una mesa libre es desechable, no debería acaparar un nombre para
+    # siempre). SQLite no permite quitar un UNIQUE con ALTER TABLE, así que
+    # hay que recrear la tabla sin esa restricción, preservando los datos.
+    _sql_tabla_mesas = _conn.execute(
+        text("SELECT sql FROM sqlite_master WHERE type='table' AND name='mesas'")
+    ).scalar()
+    if _sql_tabla_mesas and "UNIQUE" in _sql_tabla_mesas.upper():
+        _conn.execute(
+            text(
+                """
+                CREATE TABLE mesas_nueva (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    nombre VARCHAR NOT NULL,
+                    estado VARCHAR(7) NOT NULL
+                )
+                """
+            )
+        )
+        _conn.execute(text("INSERT INTO mesas_nueva (id, nombre, estado) SELECT id, nombre, estado FROM mesas"))
+        _conn.execute(text("DROP TABLE mesas"))
+        _conn.execute(text("ALTER TABLE mesas_nueva RENAME TO mesas"))
+        _conn.commit()
+
     _columnas_pagos = [fila[1] for fila in _conn.execute(text("PRAGMA table_info(pagos)"))]
     if "propina" not in _columnas_pagos:
         _conn.execute(text("ALTER TABLE pagos ADD COLUMN propina FLOAT NOT NULL DEFAULT 0"))
@@ -36,6 +63,22 @@ with engine.connect() as _conn:
     if "cantidad_servida" not in _columnas_items:
         _conn.execute(text("ALTER TABLE items_pedido ADD COLUMN cantidad_servida INTEGER NOT NULL DEFAULT 0"))
         _conn.commit()
+    if "plato" not in _columnas_items:
+        _conn.execute(text("ALTER TABLE items_pedido ADD COLUMN plato INTEGER"))
+        _conn.commit()
+
+    # La tabla categorias es nueva: la llenamos con las categorías que ya
+    # estén en uso por algún producto, para no perder las que ya existían.
+    _conn.execute(
+        text(
+            """
+            INSERT INTO categorias (nombre)
+            SELECT DISTINCT categoria FROM productos
+            WHERE categoria NOT IN (SELECT nombre FROM categorias)
+            """
+        )
+    )
+    _conn.commit()
 
 app = FastAPI(title="Comandas Taquería")
 
@@ -49,7 +92,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(Exception)
+async def _error_no_manejado(request: Request, exc: Exception):
+    # Sin esto, los 500 salen sin cabeceras CORS y el navegador los muestra
+    # como un error de CORS que oculta la causa real.
+    logging.getLogger("uvicorn.error").exception("Error en %s %s", request.method, request.url.path, exc_info=exc)
+    origen = request.headers.get("origin", "*")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Error interno del servidor"},
+        headers={"Access-Control-Allow-Origin": origen},
+    )
+
+
 app.include_router(mesas.router)
+app.include_router(categorias.router)
 app.include_router(productos.router)
 app.include_router(pedidos.router)
 app.include_router(pagos.router)

@@ -8,6 +8,11 @@ export interface Mesa {
   estado: EstadoMesa
 }
 
+export interface Categoria {
+  id: number
+  nombre: string
+}
+
 export interface Producto {
   id: number
   nombre: string
@@ -24,12 +29,14 @@ export interface ItemPedido {
   cantidad_servida: number
   precio_unitario: number
   notas: string | null
+  plato: number | null
 }
 
 export interface ItemPedidoInput {
   producto_id: number
   cantidad: number
   notas?: string
+  plato?: number
 }
 
 export interface Pago {

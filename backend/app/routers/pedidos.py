@@ -1,11 +1,14 @@
-from datetime import datetime
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
+from ..models import utc_now
 from ..websocket import manager
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pedidos", tags=["pedidos"])
 
@@ -21,7 +24,14 @@ def listar_pedidos(estado: models.EstadoPedido | None = None, db: Session = Depe
     if estado:
         query = query.filter(models.Pedido.estado == estado)
     pedidos = query.order_by(models.Pedido.fecha_apertura.desc()).all()
-    return [_con_total(p) for p in pedidos]
+    resultado = []
+    for p in pedidos:
+        try:
+            resultado.append(_con_total(p))
+        except Exception:
+            # Un pedido con datos inválidos no debe tirar todo el listado.
+            logger.exception("No se pudo serializar el pedido %s", p.id)
+    return resultado
 
 
 @router.get("/{pedido_id}", response_model=schemas.PedidoConTotal)
@@ -66,6 +76,7 @@ async def crear_pedido(datos: schemas.PedidoCreate, db: Session = Depends(get_db
                 cantidad=item.cantidad,
                 precio_unitario=producto.precio,
                 notas=item.notas,
+                plato=item.plato,
             )
         )
 
@@ -103,7 +114,7 @@ async def marcar_servido(pedido_id: int, db: Session = Depends(get_db)):
 
     for item in pedido.items:
         item.cantidad_servida = item.cantidad
-    pedido.ultimo_servido_en = datetime.now()
+    pedido.ultimo_servido_en = utc_now()
     db.commit()
     db.refresh(pedido)
     await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})
@@ -119,14 +130,17 @@ def _agregar_o_sumar_item(db: Session, pedido: models.Pedido, item: schemas.Item
     if not producto:
         raise HTTPException(status_code=404, detail=f"Producto {item.producto_id} no encontrado")
 
-    # Si el mismo producto (sin notas especiales) ya está en el ticket, se suma
-    # la cantidad en vez de crear una línea duplicada.
+    # Si el mismo producto (sin notas especiales) ya está en el ticket para el
+    # mismo plato, se suma la cantidad en vez de crear una línea duplicada.
+    # Si es para un plato distinto, debe quedar como línea aparte aunque sea
+    # el mismo producto.
     item_existente = (
         db.query(models.ItemPedido)
         .filter(
             models.ItemPedido.pedido_id == pedido.id,
             models.ItemPedido.producto_id == producto.id,
             models.ItemPedido.notas.is_(None),
+            models.ItemPedido.plato == item.plato if item.plato is not None else models.ItemPedido.plato.is_(None),
         )
         .first()
         if not item.notas
@@ -143,6 +157,7 @@ def _agregar_o_sumar_item(db: Session, pedido: models.Pedido, item: schemas.Item
                 cantidad=item.cantidad,
                 precio_unitario=producto.precio,
                 notas=item.notas,
+                plato=item.plato,
             )
         )
     return producto
@@ -159,7 +174,7 @@ async def agregar_item(pedido_id: int, item: schemas.ItemPedidoCreate, db: Sessi
     ya_servido = _pedido_totalmente_servido(pedido)
     _agregar_o_sumar_item(db, pedido, item)
     if ya_servido:
-        pedido.reloj_desde = datetime.now()
+        pedido.reloj_desde = utc_now()
     db.commit()
     db.refresh(pedido)
     await manager.broadcast({"tipo": "pedido_actualizado", "pedido_id": pedido.id})
@@ -180,7 +195,7 @@ async def agregar_items_lote(pedido_id: int, datos: schemas.ItemsPedidoLote, db:
     for item in datos.items:
         _agregar_o_sumar_item(db, pedido, item)
     if ya_servido:
-        pedido.reloj_desde = datetime.now()
+        pedido.reloj_desde = utc_now()
 
     db.commit()
     db.refresh(pedido)
